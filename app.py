@@ -1,95 +1,145 @@
 import os
+import pandas as pd
+from flask import Flask, jsonify, send_file, request, abort
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import mm
+from PIL import Image
+import io
 import requests
-from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-from datetime import datetime
-import pytz
 
+# === Load .env ===
 load_dotenv()
-
 MIST_TOKEN = os.getenv("MIST_API_TOKEN")
 ORG_ID = os.getenv("MIST_ORG_ID")
+EXCEL_FILE = "Foundry_Devices.xlsx"
+LOGO_PATH = "logo.png"
+
+# Flask app
+app = Flask(__name__)
+
+# Load Excel data once at startup
+df_devices = pd.read_excel(EXCEL_FILE)
+df_devices.fillna("", inplace=True)
+
+# Mist API Base URL (adjust ac5 or region if required)
 MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
 
-app = Flask(__name__)
-HEADERS = {"Authorization": f"Token {MIST_TOKEN}"}
+# === Helpers ===
+def get_ap_info(mac=None, serial=None):
+    """Return AP info from Excel first, then live stats from Mist API."""
+    if mac:
+        row = df_devices[df_devices['MAC Address'].str.lower() == mac.lower()]
+    elif serial:
+        row = df_devices[df_devices['Serial Number'].str.lower() == serial.lower()]
+    else:
+        return None
 
+    if row.empty:
+        return None
 
-def epoch_to_gmt_local(epoch, tz_offset_minutes):
-    """Convert epoch to GMT and site local time"""
-    dt_gmt = datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
-    local_dt = datetime.utcfromtimestamp(epoch) + pytz.timedelta(minutes=tz_offset_minutes)
-    dt_local = local_dt.strftime("%Y-%m-%d %H:%M:%S")
-    return dt_gmt, dt_local
+    device = row.iloc[0].to_dict()
 
-
-@app.route("/")
-def home():
-    return jsonify({"message": "Mist QR API is running 🚀"})
-
-
-@app.route("/ap-info", methods=["GET"])
-def ap_info():
-    ap_mac = request.args.get("mac")
-    ap_serial = request.args.get("serial")
-
-    if not ap_mac and not ap_serial:
-        return jsonify({"error": "Provide ?mac=<MAC> or ?serial=<Serial>"}), 400
-
-    # Step 1: Fetch all sites
+    # Fetch live AP stats from Mist
+    headers = {"Authorization": f"Token {MIST_TOKEN}"}
+    # Loop through all sites to find AP (simplified: using first site)
     try:
-        sites_resp = requests.get(f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites", headers=HEADERS)
+        sites_resp = requests.get(f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites", headers=headers)
         sites_resp.raise_for_status()
         sites = sites_resp.json()
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to fetch sites: {str(e)}"}), 500
+        live_info = None
+        for site in sites:
+            site_id = site['id']
+            ap_resp = requests.get(f"{MIST_BASE_URL}/sites/{site_id}/aps", headers=headers)
+            ap_resp.raise_for_status()
+            aps = ap_resp.json()
+            for ap in aps:
+                if mac and ap.get('mac', '').lower() == mac.lower():
+                    live_info = ap
+                    break
+                if serial and ap.get('serial', '').lower() == serial.lower():
+                    live_info = ap
+                    break
+            if live_info:
+                break
+    except Exception as e:
+        return {"error": f"Failed to fetch live info: {e}"}
 
-    # Step 2: Loop through each site
-    for site in sites:
-        site_id = site.get("id")
-        site_name = site.get("name")
-        tz_offset = site.get("tzoffset", 0)
+    # Merge Excel + live info
+    result = {
+        "device_name": device.get("Device Name"),
+        "model": device.get("Model"),
+        "serial_number": device.get("Serial Number"),
+        "mac": device.get("MAC Address"),
+        "live_stats": live_info
+    }
+    return result
 
-        # Device stats endpoint
-        device_url = f"{MIST_BASE_URL}/sites/{site_id}/stats/devices/{ap_mac if ap_mac else ap_serial}"
+def generate_pdf(ap_info):
+    """Create PDF for AP info and return as BytesIO"""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
 
-        try:
-            dev_resp = requests.get(device_url, headers=HEADERS)
-            if dev_resp.status_code == 404:
-                continue  # AP not in this site
-            dev_resp.raise_for_status()
-            ap_data = dev_resp.json()
+    # Logo
+    try:
+        logo = Image.open(LOGO_PATH)
+        logo_width = 80
+        logo_height = int((logo_width / logo.width) * logo.height)
+        logo.save("temp_logo.png")
+        c.drawImage("temp_logo.png", width - logo_width - 40, height - logo_height - 40,
+                    width=logo_width, height=logo_height)
+    except Exception as e:
+        print(f"⚠️ Could not insert logo: {e}")
 
-            # Add extra fields
-            ap_data_clean = {
-                "ap_name": ap_data.get("name"),
-                "model": ap_data.get("model"),
-                "mac": ap_data.get("mac"),
-                "serial": ap_data.get("serial"),
-                "status": ap_data.get("status"),
-                "version": ap_data.get("version"),
-                "site_name": site_name,
-                "clients_2_4GHz": ap_data.get("clients_2GHz", 0),
-                "clients_5GHz": ap_data.get("clients_5GHz", 0),
-                "clients_6GHz": ap_data.get("clients_6GHz", 0),
-                "lldp_neighbor": ap_data.get("lldp_neighbor"),
-                "lldp_port": ap_data.get("lldp_port"),
-                "last_seen": ap_data.get("last_seen"),
-            }
+    # Device Info
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(100, height - 80, "CBA Access Point Details")
+    c.setFont("Helvetica", 12)
+    c.drawString(100, height - 130, f"Device Name: {ap_info['device_name']}")
+    c.drawString(100, height - 150, f"Model: {ap_info['model']}")
+    c.drawString(100, height - 170, f"Serial Number: {ap_info['serial_number']}")
+    c.drawString(100, height - 190, f"MAC Address: {ap_info['mac']}")
 
-            # Optional: add timestamps if present
-            if "last_seen" in ap_data:
-                gmt, local = epoch_to_gmt_local(ap_data["last_seen"], tz_offset)
-                ap_data_clean["last_seen_gmt"] = gmt
-                ap_data_clean["last_seen_local"] = local
+    # Live stats
+    c.drawString(100, height - 220, f"Status: {ap_info['live_stats'].get('status','N/A')}")
+    c.drawString(100, height - 240, f"AP Name: {ap_info['live_stats'].get('ap_name','N/A')}")
+    c.drawString(100, height - 260, f"Clients 5GHz: {ap_info['live_stats'].get('clients_5GHz','N/A')}")
+    c.drawString(100, height - 280, f"Clients 6GHz: {ap_info['live_stats'].get('clients_6GHz','N/A')}")
+    c.drawString(100, height - 300, f"LLDP Neighbor: {ap_info['live_stats'].get('lldp_neighbor','N/A')}")
 
-            return jsonify(ap_data_clean)
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
 
-        except requests.exceptions.RequestException:
-            continue  # Skip site on error
+# === Flask Endpoints ===
+@app.route("/")
+def home():
+    return jsonify({"message": "Mist QR API running 🚀"})
 
-    return jsonify({"error": "AP not found in any site"}), 404
+@app.route("/ap-info")
+def ap_info_endpoint():
+    mac = request.args.get("mac")
+    serial = request.args.get("serial")
+    info = get_ap_info(mac, serial)
+    if not info:
+        abort(404, description="AP not found in Excel or Mist")
+    return jsonify(info)
 
+@app.route("/ap-pdf")
+def ap_pdf_endpoint():
+    mac = request.args.get("mac")
+    serial = request.args.get("serial")
+    info = get_ap_info(mac, serial)
+    if not info:
+        abort(404, description="AP not found in Excel or Mist")
+    pdf_buffer = generate_pdf(info)
+    fname = f"{info['device_name']}_{info['serial_number']}.pdf"
+    return send_file(pdf_buffer, download_name=fname, as_attachment=True)
 
+# === Main ===
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # For local testing
+    app.run(host="0.0.0.0", port=5000, debug=True)
