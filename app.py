@@ -63,9 +63,9 @@ def ap_info():
             # Add extra fields
             ap_data_clean = {
                 "ap_name": ap_data.get("name"),
+                "model": ap_data.get("model")
                 "mac": ap_data.get("mac"),
                 "serial": ap_data.get("serial"),
-                "model": ap_data.get("model"),
                 "status": ap_data.get("status"),
                 "version": ap_data.get("version"),
                 "site_name": site_name,
@@ -74,6 +74,7 @@ def ap_info():
                 "clients_6GHz": ap_data.get("clients_6GHz", 0),
                 "lldp_neighbor": ap_data.get("lldp_neighbor"),
                 "lldp_port": ap_data.get("lldp_port"),
+                "last_seen": ap_data.get("last_seen"),
             }
 
             # Optional: add timestamps if present
