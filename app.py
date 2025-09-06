@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 
 MIST_TOKEN = os.getenv("MIST_API_TOKEN")
-MIST_BASE_URL = "https://api.mist.com/api/v1"
+MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
 ORG_ID = os.getenv("MIST_ORG_ID")
 
 @app.route("/")
