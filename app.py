@@ -63,7 +63,7 @@ def ap_info():
             # Add extra fields
             ap_data_clean = {
                 "ap_name": ap_data.get("name"),
-                "model": ap_data.get("model")
+                "model": ap_data.get("model"),
                 "mac": ap_data.get("mac"),
                 "serial": ap_data.get("serial"),
                 "status": ap_data.get("status"),
