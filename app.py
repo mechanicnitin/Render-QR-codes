@@ -29,7 +29,7 @@ def ap_info():
     headers = {"Authorization": f"Token {MIST_TOKEN}"}
 
     # Step 1: Get all sites in the org
-    url_sites = f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites"
+    url_sites = f"{MIST_BASE_URL}/sites"
     resp_sites = requests.get(url_sites, headers=headers)
 
     if resp_sites.status_code != 200:
