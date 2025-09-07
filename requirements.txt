@@ -1,3 +1,7 @@
 Flask==3.1.0
 requests==2.32.3
 gunicorn==23.0.0
+pandas==2.2.2
+openpyxl==3.1.5   # required for reading Excel
+reportlab==4.2.2 # required for PDF
+qrcode==7.4.2    # required if you use generate_qr.py
