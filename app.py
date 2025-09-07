@@ -9,7 +9,7 @@ from PIL import Image
 # === Mist API config from Render environment ===
 MIST_TOKEN = os.getenv("MIST_API_TOKEN")
 ORG_ID = os.getenv("MIST_ORG_ID")
-LOGO_PATH = "logo.png"
+LOGO_PATH = "cba_small.png"
 
 # Flask app
 app = Flask(__name__)
@@ -25,7 +25,7 @@ def get_ap_info(serial=None):
         return None
 
     headers = {"Authorization": f"Token {MIST_TOKEN}"}
-    live_info = None
+    ap_info = None
 
     try:
         # Get all sites for the org
@@ -40,23 +40,34 @@ def get_ap_info(serial=None):
             ap_resp.raise_for_status()
             for ap in ap_resp.json():
                 if ap.get("serial", "").lower() == serial.lower():
-                    live_info = ap
+                    # Found the AP → now fetch detailed stats
+                    device_id = ap["id"]
+                    stats_url = f"{MIST_BASE_URL}/sites/{site_id}/stats/devices/{device_id}"
+                    stats_resp = requests.get(stats_url, headers=headers, timeout=10)
+                    stats_resp.raise_for_status()
+                    stats = stats_resp.json()
+
+                    ap_info = {
+                        "name": stats.get("name", "N/A"),
+                        "serial": stats.get("serial", serial),
+                        "mac": stats.get("mac", "N/A"),
+                        "model": stats.get("model", "N/A"),
+                        "version": stats.get("version", "N/A"),
+                        "switch_name": stats.get("lldp_stat", {}).get("system_name", "N/A"),
+                        "switch_port": stats.get("lldp_stat", {}).get("port_id", "N/A"),
+                        "clients_5g": stats.get("radio_stat", {}).get("band_5", {}).get("num_clients", "N/A"),
+                        "clients_6g": stats.get("radio_stat", {}).get("band_6", {}).get("num_clients", "N/A"),
+                        "status": stats.get("status", "N/A")
+                    }
                     break
-            if live_info:
+            if ap_info:
                 break
     except Exception as e:
-        live_info = {"error": f"Failed to fetch live info: {e}"}
-
-    if not live_info:
+        print(f"❌ Error fetching AP info: {e}")
         return None
 
-    return {
-        "device_name": live_info.get("name", "N/A"),
-        "model": live_info.get("model", "N/A"),
-        "serial_number": live_info.get("serial", serial),
-        "mac": live_info.get("mac", "N/A"),
-        "live_stats": live_info,
-    }
+    return ap_info
+
 
 
 def generate_pdf(ap_info):
@@ -86,34 +97,31 @@ def generate_pdf(ap_info):
     c.setFont("Helvetica-Bold", 18)
     c.drawString(50, height - 80, "CBA Access Point Report")
 
-    # Static details
+    # Device Info
     c.setFont("Helvetica", 12)
     y = height - 120
-    c.drawString(50, y, f"Device Name: {ap_info['device_name']}")
-    y -= 20
-    c.drawString(50, y, f"Model: {ap_info['model']}")
-    y -= 20
-    c.drawString(50, y, f"Serial Number: {ap_info['serial_number']}")
-    y -= 20
-    c.drawString(50, y, f"MAC Address: {ap_info['mac']}")
+    fields = [
+        ("AP Name", ap_info["name"]),
+        ("Model", ap_info["model"]),
+        ("Serial Number", ap_info["serial"]),
+        ("MAC Address", ap_info["mac"]),
+        ("Version", ap_info["version"]),
+        ("Status", ap_info["status"]),
+        ("Switch Name", ap_info["switch_name"]),
+        ("Switch Port", ap_info["switch_port"]),
+        ("Clients (5GHz)", ap_info["clients_5g"]),
+        ("Clients (6GHz)", ap_info["clients_6g"]),
+    ]
 
-    # Live stats
-    live = ap_info.get("live_stats", {})
-    y -= 40
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, "Live Stats")
-    c.setFont("Helvetica", 12)
-
-    if isinstance(live, dict):
-        for k, v in live.items():
-            if isinstance(v, (str, int, float)):
-                y -= 20
-                c.drawString(70, y, f"{k.capitalize()}: {v}")
+    for label, value in fields:
+        c.drawString(50, y, f"{label}: {value}")
+        y -= 20
 
     c.showPage()
     c.save()
     buffer.seek(0)
     return buffer
+
 
 
 # === Flask Endpoints ===
