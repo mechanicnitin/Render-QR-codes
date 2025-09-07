@@ -137,7 +137,7 @@ def ap_info_endpoint():
     if not info:
         abort(404, description="AP not found in Mist")
     pdf_buffer = generate_pdf(info)
-    fname = f"{info['device_name']}_{info['serial_number']}.pdf"
+    fname = f"{info['name']}_{info['serial']}.pdf"
     return send_file(pdf_buffer, download_name=fname, as_attachment=True)
 
 
