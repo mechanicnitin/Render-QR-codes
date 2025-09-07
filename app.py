@@ -1,145 +1,130 @@
 import os
-import pandas as pd
-from flask import Flask, jsonify, send_file, request, abort
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import mm
-from PIL import Image
 import io
 import requests
-from dotenv import load_dotenv
+from flask import Flask, send_file, abort
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
+from datetime import datetime
 
-# === Load .env ===
-load_dotenv()
-MIST_TOKEN = os.getenv("MIST_API_TOKEN")
-ORG_ID = os.getenv("MIST_ORG_ID")
-EXCEL_FILE = "Foundry_Devices.xlsx"
-LOGO_PATH = "logo.png"
-
-# Flask app
 app = Flask(__name__)
 
-# Load Excel data once at startup
-df_devices = pd.read_excel(EXCEL_FILE)
-df_devices.fillna("", inplace=True)
+# Load secrets from env (Render Dashboard -> Environment variables)
+MIST_API_TOKEN = os.getenv("MIST_API_TOKEN")
+MIST_ORG_ID = os.getenv("MIST_ORG_ID")
+MIST_BASE_URL = os.getenv("MIST_BASE_URL", "https://api.ac5.mist.com")
 
-# Mist API Base URL (adjust ac5 or region if required)
-MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
+# Path to logo inside app (upload logo.png in repo)
+LOGO_PATH = "cba_small.png"
 
-# === Helpers ===
-def get_ap_info(mac=None, serial=None):
-    """Return AP info from Excel first, then live stats from Mist API."""
-    if mac:
-        row = df_devices[df_devices['MAC Address'].str.lower() == mac.lower()]
-    elif serial:
-        row = df_devices[df_devices['Serial Number'].str.lower() == serial.lower()]
-    else:
-        return None
 
-    if row.empty:
-        return None
+@app.route("/pdf/<serial_or_mac>")
+def ap_pdf(serial_or_mac):
+    """
+    Generate a branded PDF with live AP stats.
+    """
+    headers = {"Authorization": f"Token {MIST_API_TOKEN}"}
 
-    device = row.iloc[0].to_dict()
+    # 1. Fetch all sites for the org
+    sites_url = f"{MIST_BASE_URL}/api/v1/orgs/{MIST_ORG_ID}/sites"
+    resp = requests.get(sites_url, headers=headers)
+    if resp.status_code != 200:
+        return abort(403, description="Failed to fetch sites from Mist API")
+    sites = resp.json()
 
-    # Fetch live AP stats from Mist
-    headers = {"Authorization": f"Token {MIST_TOKEN}"}
-    # Loop through all sites to find AP (simplified: using first site)
-    try:
-        sites_resp = requests.get(f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites", headers=headers)
-        sites_resp.raise_for_status()
-        sites = sites_resp.json()
-        live_info = None
-        for site in sites:
-            site_id = site['id']
-            ap_resp = requests.get(f"{MIST_BASE_URL}/sites/{site_id}/aps", headers=headers)
-            ap_resp.raise_for_status()
-            aps = ap_resp.json()
+    # 2. Loop through sites & fetch APs until we find match
+    ap_data = None
+    for site in sites:
+        site_id = site["id"]
+        aps_url = f"{MIST_BASE_URL}/api/v1/sites/{site_id}/devices"
+        aps_resp = requests.get(aps_url, headers=headers)
+        if aps_resp.status_code == 200:
+            aps = aps_resp.json()
             for ap in aps:
-                if mac and ap.get('mac', '').lower() == mac.lower():
-                    live_info = ap
+                if ap.get("serial") == serial_or_mac or ap.get("mac") == serial_or_mac:
+                    ap_data = {**ap, "site_name": site["name"]}
                     break
-                if serial and ap.get('serial', '').lower() == serial.lower():
-                    live_info = ap
-                    break
-            if live_info:
-                break
-    except Exception as e:
-        return {"error": f"Failed to fetch live info: {e}"}
+        if ap_data:
+            break
 
-    # Merge Excel + live info
-    result = {
-        "device_name": device.get("Device Name"),
-        "model": device.get("Model"),
-        "serial_number": device.get("Serial Number"),
-        "mac": device.get("MAC Address"),
-        "live_stats": live_info
-    }
-    return result
+    if not ap_data:
+        return abort(404, description="AP not found")
 
-def generate_pdf(ap_info):
-    """Create PDF for AP info and return as BytesIO"""
+    # 3. Generate PDF in memory
     buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
 
     # Logo
     try:
-        logo = Image.open(LOGO_PATH)
-        logo_width = 80
-        logo_height = int((logo_width / logo.width) * logo.height)
-        logo.save("temp_logo.png")
-        c.drawImage("temp_logo.png", width - logo_width - 40, height - logo_height - 40,
-                    width=logo_width, height=logo_height)
-    except Exception as e:
-        print(f"⚠️ Could not insert logo: {e}")
+        c.drawImage(LOGO_PATH, width - 60*mm, height - 30*mm, width=40*mm, height=20*mm, preserveAspectRatio=True)
+    except:
+        pass
+
+    # Title
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(width/2, height - 40*mm, "CBA Access Point Live Report")
+
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawCentredString(width/2, height - 50*mm, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
     # Device Info
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, height - 80, "CBA Access Point Details")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, height - 130, f"Device Name: {ap_info['device_name']}")
-    c.drawString(100, height - 150, f"Model: {ap_info['model']}")
-    c.drawString(100, height - 170, f"Serial Number: {ap_info['serial_number']}")
-    c.drawString(100, height - 190, f"MAC Address: {ap_info['mac']}")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30*mm, height - 70*mm, "Device Information")
 
-    # Live stats
-    c.drawString(100, height - 220, f"Status: {ap_info['live_stats'].get('status','N/A')}")
-    c.drawString(100, height - 240, f"AP Name: {ap_info['live_stats'].get('ap_name','N/A')}")
-    c.drawString(100, height - 260, f"Clients 5GHz: {ap_info['live_stats'].get('clients_5GHz','N/A')}")
-    c.drawString(100, height - 280, f"Clients 6GHz: {ap_info['live_stats'].get('clients_6GHz','N/A')}")
-    c.drawString(100, height - 300, f"LLDP Neighbor: {ap_info['live_stats'].get('lldp_neighbor','N/A')}")
+    c.setFont("Helvetica", 10)
+    info_y = height - 80*mm
+    info_lines = [
+        f"Device Name : {ap_data.get('name', 'N/A')}",
+        f"Model       : {ap_data.get('model', 'N/A')}",
+        f"Serial No.  : {ap_data.get('serial', 'N/A')}",
+        f"MAC Address : {ap_data.get('mac', 'N/A')}",
+        f"Site Name   : {ap_data.get('site_name', 'N/A')}",
+        f"Status      : {ap_data.get('status', 'N/A')}",
+    ]
+    for line in info_lines:
+        c.drawString(35*mm, info_y, line)
+        info_y -= 7*mm
+
+    # Live Stats
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30*mm, info_y - 10*mm, "Live Stats")
+
+    c.setFont("Helvetica", 10)
+    stats_y = info_y - 20*mm
+    stats_lines = [
+        f"Clients (2.4GHz): {ap_data.get('clients_24', 0)}",
+        f"Clients (5GHz)  : {ap_data.get('clients_5', 0)}",
+        f"Clients (6GHz)  : {ap_data.get('clients_6', 0)}",
+        f"Software Version: {ap_data.get('version', 'N/A')}",
+        f"LLDP Neighbor   : {ap_data.get('lldp_neighbor', 'N/A')}",
+        f"LLDP Port       : {ap_data.get('lldp_port', 'N/A')}",
+    ]
+    for line in stats_lines:
+        c.drawString(35*mm, stats_y, line)
+        stats_y -= 7*mm
+
+    # Footer
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawCentredString(width/2, 15*mm, "Report auto-generated from Mist API via CBA Wireless Portal")
 
     c.showPage()
     c.save()
-    buffer.seek(0)
-    return buffer
 
-# === Flask Endpoints ===
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"{ap_data.get('name','AP')}_Report.pdf",
+        mimetype="application/pdf"
+    )
+
+
 @app.route("/")
 def home():
-    return jsonify({"message": "Mist QR API running 🚀"})
+    return "✅ CBA AP PDF Generator is running!"
 
-@app.route("/ap-info")
-def ap_info_endpoint():
-    mac = request.args.get("mac")
-    serial = request.args.get("serial")
-    info = get_ap_info(mac, serial)
-    if not info:
-        abort(404, description="AP not found in Excel or Mist")
-    return jsonify(info)
 
-@app.route("/ap-pdf")
-def ap_pdf_endpoint():
-    mac = request.args.get("mac")
-    serial = request.args.get("serial")
-    info = get_ap_info(mac, serial)
-    if not info:
-        abort(404, description="AP not found in Excel or Mist")
-    pdf_buffer = generate_pdf(info)
-    fname = f"{info['device_name']}_{info['serial_number']}.pdf"
-    return send_file(pdf_buffer, download_name=fname, as_attachment=True)
-
-# === Main ===
 if __name__ == "__main__":
-    # For local testing
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
