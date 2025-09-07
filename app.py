@@ -76,20 +76,47 @@ def generate_pdf(ap_info):
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    # Logo top-right
+    # Logo top-right with transparency handling
     try:
         if os.path.exists(LOGO_PATH):
+            # Open the PNG image
             logo = Image.open(LOGO_PATH)
+            
+            # Convert to RGBA if not already (handles transparency)
+            if logo.mode != 'RGBA':
+                logo = logo.convert('RGBA')
+            
+            # Create a white background image
+            white_bg = Image.new('RGBA', logo.size, (255, 255, 255, 255))
+            
+            # Composite the logo on white background, preserving transparency
+            logo_with_white_bg = Image.alpha_composite(white_bg, logo)
+            
+            # Convert to RGB for PDF compatibility
+            logo_rgb = logo_with_white_bg.convert('RGB')
+            
+            # Calculate dimensions
             logo_width = 100
             logo_height = int((logo_width / logo.width) * logo.height)
-            logo.save("temp_logo.png")
+            
+            # Save temporary image
+            temp_logo_path = "temp_logo.png"
+            logo_rgb.save(temp_logo_path, "PNG")
+            
+            # Draw on PDF
             c.drawImage(
-                "temp_logo.png",
+                temp_logo_path,
                 width - logo_width - 40,
                 height - logo_height - 40,
                 width=logo_width,
                 height=logo_height,
+                mask='auto'  # This helps with transparency
             )
+            
+            # Clean up temporary file
+            if os.path.exists(temp_logo_path):
+                os.remove(temp_logo_path)
+                
     except Exception as e:
         print(f"⚠️ Could not insert logo: {e}")
 
@@ -100,6 +127,7 @@ def generate_pdf(ap_info):
     # Device Info
     c.setFont("Helvetica", 12)
     y = height - 120
+
     fields = [
         ("AP Name", ap_info["name"]),
         ("Model", ap_info["model"]),
@@ -121,7 +149,6 @@ def generate_pdf(ap_info):
     c.save()
     buffer.seek(0)
     return buffer
-
 
 
 # === Flask Endpoints ===
