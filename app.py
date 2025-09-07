@@ -1,6 +1,5 @@
 import os
 import io
-import pandas as pd
 import requests
 from flask import Flask, jsonify, send_file, request, abort
 from reportlab.lib.pagesizes import letter
@@ -12,15 +11,10 @@ from dotenv import load_dotenv
 load_dotenv()
 MIST_TOKEN = os.getenv("MIST_API_TOKEN")
 ORG_ID = os.getenv("MIST_ORG_ID")
-EXCEL_FILE = "Foundry_Devices.xlsx"
 LOGO_PATH = "logo.png"
 
 # Flask app
 app = Flask(__name__)
-
-# Load Excel data once at startup
-df_devices = pd.read_excel(EXCEL_FILE)
-df_devices.fillna("", inplace=True)
 
 # Mist API Base URL (adjust region if required)
 MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
@@ -28,42 +22,38 @@ MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
 
 # === Helpers ===
 def get_ap_info(serial=None):
-    """Return AP info by serial, enrich with live stats from Mist (loop sites)."""
+    """Search AP by serial across all sites in Mist org."""
     if not serial:
         return None
 
-    row = df_devices[df_devices["Serial Number"].str.lower() == serial.lower()]
-    if row.empty:
-        return None
-    device = row.iloc[0].to_dict()
-
-    # Search across sites
     headers = {"Authorization": f"Token {MIST_TOKEN}"}
-    live_info = None
     try:
         sites_resp = requests.get(f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites", headers=headers, timeout=10)
         sites_resp.raise_for_status()
         sites = sites_resp.json()
+
         for site in sites:
             site_id = site["id"]
+            site_name = site.get("name", "Unknown Site")
             ap_resp = requests.get(f"{MIST_BASE_URL}/sites/{site_id}/devices", headers=headers, timeout=10)
             ap_resp.raise_for_status()
+
             for ap in ap_resp.json():
                 if ap.get("serial", "").lower() == serial.lower():
-                    live_info = ap
-                    break
-            if live_info:
-                break
-    except Exception as e:
-        live_info = {"error": f"Failed to fetch live info: {e}"}
+                    # Found matching AP
+                    return {
+                        "device_name": ap.get("name", "Unknown"),
+                        "model": ap.get("model", "Unknown"),
+                        "serial_number": ap.get("serial"),
+                        "mac": ap.get("mac", "Unknown"),
+                        "site": site_name,
+                        "live_stats": ap,  # full AP JSON
+                    }
 
-    return {
-        "device_name": device.get("Device Name"),
-        "model": device.get("Model"),
-        "serial_number": device.get("Serial Number"),
-        "mac": device.get("MAC Address"),
-        "live_stats": live_info,
-    }
+    except Exception as e:
+        return {"error": f"Failed to fetch data: {e}"}
+
+    return None
 
 
 def generate_pdf(ap_info):
@@ -103,6 +93,8 @@ def generate_pdf(ap_info):
     c.drawString(50, y, f"Serial Number: {ap_info['serial_number']}")
     y -= 20
     c.drawString(50, y, f"MAC Address: {ap_info['mac']}")
+    y -= 20
+    c.drawString(50, y, f"Site: {ap_info.get('site', 'Unknown')}")
 
     # Live stats
     live = ap_info.get("live_stats", {})
@@ -134,7 +126,7 @@ def ap_info_endpoint():
     serial = request.args.get("serial")
     info = get_ap_info(serial=serial)
     if not info:
-        abort(404, description="AP not found in Excel or Mist")
+        abort(404, description="AP not found in Mist")
     pdf_buffer = generate_pdf(info)
     fname = f"{info['device_name']}_{info['serial_number']}.pdf"
     return send_file(pdf_buffer, download_name=fname, as_attachment=True)
