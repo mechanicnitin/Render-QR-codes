@@ -5,10 +5,8 @@ from flask import Flask, jsonify, send_file, request, abort
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from PIL import Image
-from dotenv import load_dotenv
 
-# === Load .env ===
-load_dotenv()
+# === Mist API config from Render environment ===
 MIST_TOKEN = os.getenv("MIST_API_TOKEN")
 ORG_ID = os.getenv("MIST_ORG_ID")
 LOGO_PATH = "logo.png"
@@ -22,38 +20,43 @@ MIST_BASE_URL = "https://api.ac5.mist.com/api/v1"
 
 # === Helpers ===
 def get_ap_info(serial=None):
-    """Search AP by serial across all sites in Mist org."""
+    """Return AP info by serial (loop through all sites)."""
     if not serial:
         return None
 
     headers = {"Authorization": f"Token {MIST_TOKEN}"}
+    live_info = None
+
     try:
+        # Get all sites for the org
         sites_resp = requests.get(f"{MIST_BASE_URL}/orgs/{ORG_ID}/sites", headers=headers, timeout=10)
         sites_resp.raise_for_status()
         sites = sites_resp.json()
 
+        # Search each site for the AP
         for site in sites:
             site_id = site["id"]
-            site_name = site.get("name", "Unknown Site")
             ap_resp = requests.get(f"{MIST_BASE_URL}/sites/{site_id}/devices", headers=headers, timeout=10)
             ap_resp.raise_for_status()
-
             for ap in ap_resp.json():
                 if ap.get("serial", "").lower() == serial.lower():
-                    # Found matching AP
-                    return {
-                        "device_name": ap.get("name", "Unknown"),
-                        "model": ap.get("model", "Unknown"),
-                        "serial_number": ap.get("serial"),
-                        "mac": ap.get("mac", "Unknown"),
-                        "site": site_name,
-                        "live_stats": ap,  # full AP JSON
-                    }
-
+                    live_info = ap
+                    break
+            if live_info:
+                break
     except Exception as e:
-        return {"error": f"Failed to fetch data: {e}"}
+        live_info = {"error": f"Failed to fetch live info: {e}"}
 
-    return None
+    if not live_info:
+        return None
+
+    return {
+        "device_name": live_info.get("name", "N/A"),
+        "model": live_info.get("model", "N/A"),
+        "serial_number": live_info.get("serial", serial),
+        "mac": live_info.get("mac", "N/A"),
+        "live_stats": live_info,
+    }
 
 
 def generate_pdf(ap_info):
@@ -93,8 +96,6 @@ def generate_pdf(ap_info):
     c.drawString(50, y, f"Serial Number: {ap_info['serial_number']}")
     y -= 20
     c.drawString(50, y, f"MAC Address: {ap_info['mac']}")
-    y -= 20
-    c.drawString(50, y, f"Site: {ap_info.get('site', 'Unknown')}")
 
     # Live stats
     live = ap_info.get("live_stats", {})
