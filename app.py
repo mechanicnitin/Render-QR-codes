@@ -193,127 +193,104 @@ def validate_key_role(key):
 
 # ==== HTML form served when no key provided ====
 HTML_FORM = """
-<!doctype html>
+<!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>CBA AP Access</title>
-    <style>
-      body {
-        font-family: "Segoe UI", Arial, sans-serif;
-        background: #f4f6f9;
-        margin: 0;
-        padding: 40px;
-      }
-      .card {
-        max-width: 520px;
-        margin: auto;
-        background: #fff;
-        padding: 30px;
-        border-radius: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      }
-      .logo {
-        display: block;
-        margin: 0 auto 20px auto;
-        max-width: 140px;
-      }
-      h2 {
-        text-align: center;
-        margin-bottom: 10px;
-        color: #1e88e5;
-      }
-      p.muted {
-        text-align: center;
-        color: #666;
-        font-size: 0.9em;
-        margin-bottom: 20px;
-      }
-      label {
-        display:block;
-        margin-top:15px;
-        font-weight: 500;
-      }
-      input[type="password"] {
-        width:100%;
-        padding:10px;
-        margin-top:6px;
-        border:1px solid #ccc;
-        border-radius: 6px;
-        font-size: 14px;
-      }
-      .checkbox {
-        margin-top: 15px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
-      }
-      button {
-        width: 100%;
-        margin-top: 20px;
-        padding:12px;
-        background:#1e88e5;
-        color:white;
-        border:none;
-        border-radius:6px;
-        font-size:16px;
-        cursor:pointer;
-        transition: background 0.2s;
-      }
-      button:hover {
-        background:#1565c0;
-      }
-      button:disabled {
-        background:#aaa;
-        cursor: not-allowed;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <img src="cba_small.png" class="logo" alt="CBA Logo" />
-      <h2>CBA AP Access</h2>
-      <p class="muted">Serial: <strong>{serial_safe}</strong></p>
+<head>
+  <title>CBA AP Info Access</title>
+  <style>
+    body {{
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f4f6f9;
+      margin: 0;
+      padding: 40px;
+    }}
+    .card {{
+      max-width: 520px;
+      margin: auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      text-align: center;
+    }}
+    .card img {{
+      max-height: 60px;
+      margin-bottom: 20px;
+    }}
+    h2 {{
+      margin-bottom: 20px;
+      color: #333;
+    }}
+    label {{
+      display: block;
+      margin-top: 15px;
+      font-weight: 500;
+      color: #444;
+      text-align: left;
+    }}
+    input[type="password"] {{
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+    }}
+    .checkbox {{
+      margin-top: 15px;
+      text-align: left;
+      color: #444;
+    }}
+    button {{
+      margin-top: 25px;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      background: #0070c9;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }}
+    button:hover {{
+      background: #005fa3;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/static/cba_small.png" alt="CBA Logo" />
+    <h2>Access Point Report</h2>
+    <form method="POST" action="/ap-info?serial={serial_escaped}">
+      <label for="password">Enter Password:</label>
+      <input type="password" name="password" id="password" placeholder="Enter password" />
 
-      <form method="post" action="/ap-info">
-        <input type="hidden" name="serial" value="{serial_escaped}" />
+      <div class="checkbox">
+        <input type="checkbox" id="public" name="public" onclick="togglePassword()" />
+        <label for="public">Proceed without password</label>
+      </div>
 
-        <div class="checkbox">
-          <input type="checkbox" id="no_pass" name="no_pass" />
-          <label for="no_pass">Proceed without password (public view)</label>
-        </div>
+      <button type="submit">Generate Report</button>
+    </form>
+  </div>
 
-        <label id="pwd_label">Access Password
-          <input type="password" id="pw" name="pw" placeholder="Enter password" />
-        </label>
-
-        <button type="submit">Generate PDF</button>
-      </form>
-
-      <p class="muted">Public view: AP Name + Model.  
-      With password: more details depending on your role.</p>
-    </div>
-
-    <script>
-      const checkbox = document.getElementById('no_pass');
-      const pwInput = document.getElementById('pw');
-      const pwdLabel = document.getElementById('pwd_label');
-
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) {
-          pwInput.disabled = true;
-          pwInput.value = '';
-          pwdLabel.style.opacity = 0.5;
-        } else {
-          pwInput.disabled = false;
-          pwdLabel.style.opacity = 1;
-        }
-      });
-    </script>
-  </body>
+  <script>
+    function togglePassword() {{
+      var cb = document.getElementById("public");
+      var pw = document.getElementById("password");
+      if (cb.checked) {{
+        pw.disabled = true;
+        pw.value = "";
+      }} else {{
+        pw.disabled = false;
+      }}
+    }}
+  </script>
+</body>
 </html>
 """
+
 
 
 
