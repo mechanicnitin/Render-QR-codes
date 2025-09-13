@@ -199,38 +199,100 @@ HTML_FORM = """
     <meta charset="utf-8" />
     <title>CBA AP Access</title>
     <style>
-      body {{ font-family: Arial, sans-serif; margin: 40px; }}
-      .card {{ max-width: 640px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }}
-      label {{ display:block; margin-top:10px; }}
-      input[type="text"], input[type="password"] {{ width:100%; padding:8px; margin-top:6px; box-sizing:border-box; }}
-      .row {{ display:flex; gap:10px; margin-top:12px; align-items:center; }}
-      .muted {{ color:#666; font-size:0.9em; }}
-      button {{ margin-top:16px; padding:10px 16px; background:#1e88e5; color:white; border:none; border-radius:4px; cursor:pointer; }}
-      button:disabled {{ background:#aaa; }}
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: #f4f6f9;
+        margin: 0;
+        padding: 40px;
+      }
+      .card {
+        max-width: 520px;
+        margin: auto;
+        background: #fff;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+      .logo {
+        display: block;
+        margin: 0 auto 20px auto;
+        max-width: 140px;
+      }
+      h2 {
+        text-align: center;
+        margin-bottom: 10px;
+        color: #1e88e5;
+      }
+      p.muted {
+        text-align: center;
+        color: #666;
+        font-size: 0.9em;
+        margin-bottom: 20px;
+      }
+      label {
+        display:block;
+        margin-top:15px;
+        font-weight: 500;
+      }
+      input[type="password"] {
+        width:100%;
+        padding:10px;
+        margin-top:6px;
+        border:1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .checkbox {
+        margin-top: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+      }
+      button {
+        width: 100%;
+        margin-top: 20px;
+        padding:12px;
+        background:#1e88e5;
+        color:white;
+        border:none;
+        border-radius:6px;
+        font-size:16px;
+        cursor:pointer;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background:#1565c0;
+      }
+      button:disabled {
+        background:#aaa;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
     <div class="card">
+      <img src="cba_small.png" class="logo" alt="CBA Logo" />
       <h2>CBA AP Access</h2>
       <p class="muted">Serial: <strong>{serial_safe}</strong></p>
 
       <form method="post" action="/ap-info">
         <input type="hidden" name="serial" value="{serial_escaped}" />
-        <label>
-          <input type="checkbox" id="no_pass" name="no_pass" />
-          Proceed without password (public view)
-        </label>
 
-        <label id="pwd_label">Enter Access Password (for Field Tech / Manager / Superuser)
+        <div class="checkbox">
+          <input type="checkbox" id="no_pass" name="no_pass" />
+          <label for="no_pass">Proceed without password (public view)</label>
+        </div>
+
+        <label id="pwd_label">Access Password
           <input type="password" id="pw" name="pw" placeholder="Enter password" />
         </label>
 
-        <div class="row">
-          <button type="submit">Proceed</button>
-        </div>
+        <button type="submit">Generate PDF</button>
       </form>
 
-      <p class="muted">If you have an internal access password, enter it to get more details. Otherwise select "Proceed without password" for public info (AP name, model).</p>
+      <p class="muted">Public view: AP Name + Model.  
+      With password: more details depending on your role.</p>
     </div>
 
     <script>
@@ -238,20 +300,21 @@ HTML_FORM = """
       const pwInput = document.getElementById('pw');
       const pwdLabel = document.getElementById('pwd_label');
 
-      checkbox.addEventListener('change', () => {{
-        if (checkbox.checked) {{
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
           pwInput.disabled = true;
           pwInput.value = '';
           pwdLabel.style.opacity = 0.5;
-        }} else {{
+        } else {
           pwInput.disabled = false;
           pwdLabel.style.opacity = 1;
-        }}
-      }});
+        }
+      });
     </script>
   </body>
 </html>
 """
+
 
 
 # === Flask Endpoints ===
