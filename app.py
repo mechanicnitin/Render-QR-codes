@@ -212,21 +212,21 @@ HTML_FORM = """
   </head>
   <body>
     <div class="card">
-      <img src="cba_small.png" alt="CBA Logo" class="logo"/>
+      <img src="/cba_small.png" alt="CBA Logo" class="logo"/>
       <h2>CBA AP Access</h2>
       <p class="muted">Serial: <strong>{serial_safe}</strong></p>
 
       <form method="post" action="/ap-info">
-        <input type="hidden" name="serial" value="{serial_escaped}" />
-        <label>
-          <input type="checkbox" id="no_pass" name="no_pass" />
-          Proceed without password (public view)
-        </label>
 
         <label id="pwd_label">Enter Access Password (for Field Tech / Manager / Superuser)
           <input type="password" id="pw" name="pw" placeholder="Enter password" />
         </label>
 
+        <label>
+          <input type="checkbox" id="no_pass" name="no_pass" />
+          Proceed without password (public view)
+        </label>
+        
         <div class="row">
           <button type="submit">Proceed</button>
         </div>
